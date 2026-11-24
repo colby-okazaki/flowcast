@@ -1,0 +1,68 @@
+name: flowcast
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: flowcast
+      POSTGRES_PASSWORD: flowcast
+      POSTGRES_DB: flowcast
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowcast -d flowcast"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ml:
+    build: ./services/ml
+    environment:
+      MODEL_DIR: /models
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models
+
+  api:
+    build: ./services/api
+    environment:
+      PORT: 4000
+      DATABASE_URL: postgres://flowcast:flowcast@postgres:5432/flowcast
+      REDIS_URL: redis://redis:6379
+      ML_SERVICE_URL: http://ml:8000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ml:
+        condition: service_started
+
+  # One-shot ingestion job. Run with: docker compose run --rm ingest --source synthetic --days 14
+  ingest:
+    build: ./services/ingest
+    environment:
+      DATABASE_URL: postgresql://flowcast:flowcast@postgres:5432/flowcast
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["jobs"]
+
+volumes:
+  pgdata:
