@@ -1,13 +1,15 @@
 from .base import Source
 from .synthetic import SyntheticSource
+from .webtris import WebTrisSource
+
+SOURCES: dict[str, type] = {"synthetic": SyntheticSource, "webtris": WebTrisSource}
 
 
 def get_source(name: str, **kwargs) -> Source:
-    """Look up a data source by name. Add real sources (PeMS, WebTRIS, ...) here."""
-    sources = {"synthetic": SyntheticSource}
-    if name not in sources:
-        raise ValueError(f"Unknown source '{name}'. Available: {', '.join(sorted(sources))}")
-    return sources[name](**kwargs)
+    """Look up a data source by name."""
+    if name not in SOURCES:
+        raise ValueError(f"Unknown source '{name}'. Available: {', '.join(sorted(SOURCES))}")
+    return SOURCES[name](**kwargs)
 
 
-__all__ = ["Source", "SyntheticSource", "get_source"]
+__all__ = ["SOURCES", "Source", "SyntheticSource", "WebTrisSource", "get_source"]

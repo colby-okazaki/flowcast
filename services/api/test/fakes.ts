@@ -18,12 +18,18 @@ export class FakeRepository implements Repository {
 
   async ping() {}
 
+  private withLatest(s: Sensor): Sensor {
+    const times = this.readings.filter((r) => r.sensorId === s.id).map((r) => r.observedAt);
+    return { ...s, latestReadingAt: times.length ? times.sort().at(-1)! : null };
+  }
+
   async listSensors() {
-    return this.sensors;
+    return this.sensors.map((s) => this.withLatest(s));
   }
 
   async getSensor(id: string) {
-    return this.sensors.find((s) => s.id === id) ?? null;
+    const s = this.sensors.find((x) => x.id === id);
+    return s ? this.withLatest(s) : null;
   }
 
   async getReadings(sensorId: string, from: Date, to: Date, limit: number) {
@@ -66,13 +72,32 @@ export class FakeMlClient implements MlClient {
   async forecast(req: ForecastRequest) {
     this.calls.push(req);
     const last = req.history[req.history.length - 1];
-    const points: ForecastPoint[] = req.horizonsMinutes.map((h) => ({
-      targetTime: new Date(new Date(last.observedAt).getTime() + h * 60_000).toISOString(),
-      horizonMinutes: h,
-      predictedFlow: last.flowVph,
-    }));
-    return { modelVersion: "v1", points };
+    return { modelVersion: "v1", points: lastValuePoints(last, req.horizonsMinutes) };
   }
+
+  /** Mirrors the real service: at each cutoff, forecast from the last reading strictly before it. */
+  async backfill(req: ForecastRequest & { cutoffs: string[] }) {
+    this.backfillCalls.push(req);
+    const byKey = new Map<string, ForecastPoint>();
+    for (const cutoff of req.cutoffs) {
+      const visible = req.history.filter((h) => h.observedAt < cutoff);
+      if (!visible.length) continue;
+      for (const p of lastValuePoints(visible[visible.length - 1], req.horizonsMinutes)) {
+        byKey.set(`${p.targetTime}|${p.horizonMinutes}`, p);
+      }
+    }
+    return { modelVersion: "v1", points: [...byKey.values()] };
+  }
+
+  backfillCalls: (ForecastRequest & { cutoffs: string[] })[] = [];
+}
+
+function lastValuePoints(last: { observedAt: string; flowVph: number }, horizons: number[]): ForecastPoint[] {
+  return horizons.map((h) => ({
+    targetTime: new Date(new Date(last.observedAt).getTime() + h * 60_000).toISOString(),
+    horizonMinutes: h,
+    predictedFlow: last.flowVph,
+  }));
 }
 
 export const sampleSensor: Sensor = {
@@ -84,4 +109,5 @@ export const sampleSensor: Sensor = {
   longitude: -118.45,
   lanes: 5,
   source: "synthetic",
+  latestReadingAt: null,
 };

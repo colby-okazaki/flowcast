@@ -6,6 +6,8 @@ export interface Sensor {
   latitude: number;
   longitude: number;
   lanes: number | null;
+  source: string;
+  latestReadingAt: string | null;
 }
 
 export interface ComparisonPoint {
@@ -38,5 +40,10 @@ export const api = {
     request<{ saved: number }>(`/api/sensors/${encodeURIComponent(id)}/forecast`, {
       method: "POST",
       body: JSON.stringify({ horizonsMinutes }),
+    }),
+  backfill: (id: string, hours: number, horizonsMinutes: number[]) =>
+    request<{ saved: number; cutoffs: number }>(`/api/sensors/${encodeURIComponent(id)}/backfill`, {
+      method: "POST",
+      body: JSON.stringify({ hours, horizonsMinutes }),
     }),
 };

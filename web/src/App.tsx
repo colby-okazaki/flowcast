@@ -5,6 +5,13 @@ import { SensorMap } from "./components/SensorMap";
 
 const HORIZONS = [15, 30, 60];
 
+// Traffic patterns only make sense in local clock time (rush hour is 8 a.m. where the road is).
+const SOURCE_TIME_ZONES: Record<string, string> = {
+  webtris: "Europe/London",
+  synthetic: "America/Los_Angeles",
+};
+const timeZoneFor = (s?: Sensor) => (s && SOURCE_TIME_ZONES[s.source]) || "UTC";
+
 export default function App() {
   const [sensors, setSensors] = useState<Sensor[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -12,7 +19,7 @@ export default function App() {
   const [hours, setHours] = useState(24);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     api
@@ -38,20 +45,30 @@ export default function App() {
     void load();
   }, [load]);
 
-  async function runForecast() {
+  async function runAction(label: string, action: (id: string) => Promise<unknown>) {
     if (!selectedId) return;
-    setBusy(true);
+    setBusy(label);
     try {
-      await api.forecast(selectedId, HORIZONS);
+      await action(selectedId);
       await load();
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
 
   const selected = sensors.find((s) => s.id === selectedId);
+  const timeZone = timeZoneFor(selected);
+  const dateTimeFmt = new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+    timeZoneName: "short",
+  });
   const m = comparison?.metrics;
 
   return (
@@ -73,7 +90,13 @@ export default function App() {
             <h2>{selected?.name ?? "Select a sensor"}</h2>
             {selected && (
               <p className="muted">
-                {selected.road} {selected.direction}B · {selected.lanes} lanes · {selected.id}
+                {[
+                  selected.road,
+                  selected.lanes ? `${selected.lanes} lanes` : null,
+                  selected.latestReadingAt ? `data through ${dateTimeFmt.format(new Date(selected.latestReadingAt))}` : "no data yet",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")}
               </p>
             )}
           </div>
@@ -97,8 +120,19 @@ export default function App() {
                 ))}
               </select>
             </label>
-            <button onClick={runForecast} disabled={!selectedId || busy}>
-              {busy ? "Forecasting…" : "Generate forecast"}
+            <button
+              className="secondary"
+              onClick={() => runAction("backtest", (id) => api.backfill(id, hours, HORIZONS))}
+              disabled={!selectedId || busy !== null}
+              title="Replay the model over this window as if it were live, then score it against what actually happened"
+            >
+              {busy === "backtest" ? "Backtesting…" : "Backtest window"}
+            </button>
+            <button
+              onClick={() => runAction("forecast", (id) => api.forecast(id, HORIZONS))}
+              disabled={!selectedId || busy !== null}
+            >
+              {busy === "forecast" ? "Forecasting…" : "Forecast next hour"}
             </button>
           </div>
         </div>
@@ -110,7 +144,12 @@ export default function App() {
           <Metric label="Scored points" value={m?.n} />
         </div>
 
-        <ForecastChart points={comparison?.points ?? []} />
+        <ForecastChart points={comparison?.points ?? []} timeZone={timeZone} />
+        {selected?.source === "webtris" && (
+          <p className="muted attribution">
+            Traffic data: National Highways WebTRIS, published under the Open Government Licence. Times shown in UK local time.
+          </p>
+        )}
       </section>
     </div>
   );

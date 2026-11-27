@@ -10,6 +10,7 @@ class Source(Protocol):
     """A traffic data provider. Implement this once per real-world feed."""
 
     name: str
+    default_lookback_days: int  # how far back a first (non-incremental) run should reach
 
     def sensors(self) -> list[SensorRecord]: ...
 

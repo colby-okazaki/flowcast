@@ -16,21 +16,30 @@ export class PgRepository implements Repository {
     await this.pool.query("SELECT 1");
   }
 
+  // The LATERAL subquery reads one index entry per sensor via the (sensor_id, observed_at) primary key.
+  private static readonly SENSOR_SELECT = `
+    SELECT s.id, s.name, s.road, s.direction, s.latitude, s.longitude, s.lanes, s.source,
+           latest.observed_at AS "latestReadingAt"
+      FROM sensors s
+      LEFT JOIN LATERAL (
+        SELECT observed_at FROM readings r
+         WHERE r.sensor_id = s.id
+         ORDER BY observed_at DESC
+         LIMIT 1
+      ) latest ON true`;
+
+  private static toSensor(row: Sensor & { latestReadingAt: Date | null }): Sensor {
+    return { ...row, latestReadingAt: row.latestReadingAt ? new Date(row.latestReadingAt).toISOString() : null };
+  }
+
   async listSensors(): Promise<Sensor[]> {
-    const { rows } = await this.pool.query(
-      `SELECT id, name, road, direction, latitude, longitude, lanes, source
-         FROM sensors ORDER BY id`,
-    );
-    return rows;
+    const { rows } = await this.pool.query(`${PgRepository.SENSOR_SELECT} ORDER BY s.road, s.id`);
+    return rows.map(PgRepository.toSensor);
   }
 
   async getSensor(id: string): Promise<Sensor | null> {
-    const { rows } = await this.pool.query(
-      `SELECT id, name, road, direction, latitude, longitude, lanes, source
-         FROM sensors WHERE id = $1`,
-      [id],
-    );
-    return rows[0] ?? null;
+    const { rows } = await this.pool.query(`${PgRepository.SENSOR_SELECT} WHERE s.id = $1`, [id]);
+    return rows[0] ? PgRepository.toSensor(rows[0]) : null;
   }
 
   async getReadings(sensorId: string, from: Date, to: Date, limit: number): Promise<Reading[]> {
