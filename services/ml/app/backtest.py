@@ -1,11 +1,35 @@
 from __future__ import annotations
 
 import math
+from bisect import bisect_left
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Sequence
 
-from .models.base import Forecaster, Observation
+from .models.base import Forecaster, ForecastPoint, Observation
+
+
+def backfill_predictions(
+    model: Forecaster,
+    series: Sequence[Observation],
+    horizons_minutes: Sequence[int],
+    cutoffs: Sequence[datetime],
+) -> list[ForecastPoint]:
+    """Reproduce the forecasts the model would have made at each past cutoff.
+
+    For each cutoff, only observations strictly before it are visible, so the
+    resulting predictions can be scored against actuals without leakage.
+    When two cutoffs yield the same (target, horizon), the later one wins.
+    """
+    times = [obs.observed_at for obs in series]
+    by_key: dict[tuple[datetime, int], ForecastPoint] = {}
+    for cutoff in sorted(cutoffs):
+        visible = bisect_left(times, cutoff)
+        if visible == 0:
+            continue
+        for point in model.predict(series[:visible], horizons_minutes):
+            by_key[(point.target_time, point.horizon_minutes)] = point
+    return sorted(by_key.values(), key=lambda p: (p.target_time, p.horizon_minutes))
 
 
 @dataclass(frozen=True)

@@ -54,7 +54,19 @@ services:
       ml:
         condition: service_started
 
-  # One-shot ingestion job. Run with: docker compose run --rm ingest --source synthetic --days 14
+  # Keeps the database current: pulls new WebTRIS data every 6 hours.
+  # The first run backfills several months, so it takes a few minutes.
+  ingest-scheduler:
+    build: ./services/ingest
+    command: ["--source", "webtris", "--incremental", "--every", "6h"]
+    environment:
+      DATABASE_URL: postgresql://flowcast:flowcast@postgres:5432/flowcast
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # One-shot ingestion job. Run with: docker compose run --rm ingest --source webtris --incremental
   ingest:
     build: ./services/ingest
     environment:

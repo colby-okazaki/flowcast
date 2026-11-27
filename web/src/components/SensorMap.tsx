@@ -1,4 +1,5 @@
-import { CircleMarker, MapContainer, TileLayer, Tooltip } from "react-leaflet";
+import { useEffect } from "react";
+import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from "react-leaflet";
 import type { Sensor } from "../api";
 
 interface Props {
@@ -7,20 +8,27 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
-export function SensorMap({ sensors, selectedId, onSelect }: Props) {
-  const center: [number, number] = sensors.length
-    ? [
-        sensors.reduce((s, x) => s + x.latitude, 0) / sensors.length,
-        sensors.reduce((s, x) => s + x.longitude, 0) / sensors.length,
-      ]
-    : [34.05, -118.35];
+/** Fits the map to all sensors once they load. */
+function FitToSensors({ sensors }: { sensors: Sensor[] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (sensors.length === 0) return;
+    map.fitBounds(
+      sensors.map((s) => [s.latitude, s.longitude] as [number, number]),
+      { padding: [32, 32], maxZoom: 12 },
+    );
+  }, [map, sensors]);
+  return null;
+}
 
+export function SensorMap({ sensors, selectedId, onSelect }: Props) {
   return (
-    <MapContainer center={center} zoom={11} className="map" scrollWheelZoom>
+    <MapContainer center={[51.5, -0.12]} zoom={9} className="map" scrollWheelZoom>
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
+      <FitToSensors sensors={sensors} />
       {sensors.map((s) => (
         <CircleMarker
           key={s.id}

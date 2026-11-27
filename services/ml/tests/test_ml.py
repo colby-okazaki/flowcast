@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
-from app.backtest import rolling_backtest
+from app.backtest import backfill_predictions, rolling_backtest
 from app.main import create_app
 from app.models.base import Observation
 from app.models.baseline import SeasonalAverageForecaster
@@ -46,6 +46,35 @@ class TestBaseline:
         assert result.mae == 0
 
 
+class LastValueModel:
+    """Predicts the last visible value, which makes leakage easy to detect."""
+
+    name = "last"
+    version = "t"
+
+    def predict(self, history, horizons_minutes):
+        from app.models.base import ForecastPoint
+
+        last = history[-1]
+        return [ForecastPoint(last.observed_at + timedelta(minutes=h), h, last.flow_vph) for h in horizons_minutes]
+
+
+class TestBackfill:
+    def test_only_sees_data_before_each_cutoff(self):
+        series = [Observation(MONDAY + timedelta(minutes=15 * i), float(i)) for i in range(10)]
+        cutoff = MONDAY + timedelta(minutes=15 * 4)  # observations 0..3 visible
+        [point] = backfill_predictions(LastValueModel(), series, [15], [cutoff])
+        assert point.predicted_flow == 3.0
+        assert point.target_time == MONDAY + timedelta(minutes=60)
+
+    def test_skips_cutoffs_before_any_data_and_sorts_output(self):
+        series = [Observation(MONDAY + timedelta(minutes=15 * i), float(i)) for i in range(10)]
+        cutoffs = [MONDAY + timedelta(hours=2), MONDAY - timedelta(hours=1), MONDAY + timedelta(hours=1)]
+        points = backfill_predictions(LastValueModel(), series, [15], cutoffs)
+        assert len(points) == 2
+        assert points == sorted(points, key=lambda p: p.target_time)
+
+
 class TestApi:
     client = TestClient(create_app())
 
@@ -73,6 +102,19 @@ class TestApi:
             json={"sensor_id": "s", "model": "nope", "history": [{"observed_at": MONDAY.isoformat(), "flow_vph": 1}]},
         )
         assert res.status_code == 404
+
+    def test_backfill_returns_points_per_cutoff_and_horizon(self):
+        history = [
+            {"observed_at": (MONDAY + timedelta(minutes=15 * i)).isoformat(), "flow_vph": 1000 + i}
+            for i in range(96)
+        ]
+        cutoffs = [(MONDAY + timedelta(hours=h)).isoformat() for h in (6, 12, 18)]
+        res = self.client.post(
+            "/predict/backfill",
+            json={"sensor_id": "s", "horizons_minutes": [15, 60], "history": history, "cutoffs": cutoffs},
+        )
+        assert res.status_code == 200
+        assert len(res.json()["points"]) == 6
 
     @pytest.mark.parametrize(
         "body",

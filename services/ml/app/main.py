@@ -5,7 +5,8 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from .models.base import Observation
+from .backtest import backfill_predictions
+from .models.base import Forecaster, ForecastPoint, Observation
 from .registry import ModelRegistry, default_registry
 
 
@@ -26,6 +27,13 @@ class PredictRequest(BaseModel):
         if any(h <= 0 or h > 24 * 60 for h in v):
             raise ValueError("horizons must be between 1 and 1440 minutes")
         return v
+
+
+MAX_BACKFILL_CUTOFFS = 2000
+
+
+class BackfillRequest(PredictRequest):
+    cutoffs: list[datetime] = Field(min_length=1, max_length=MAX_BACKFILL_CUTOFFS)
 
 
 class PredictPoint(BaseModel):
@@ -53,23 +61,34 @@ def create_app(registry: ModelRegistry | None = None) -> FastAPI:
     def list_models() -> list[dict[str, str]]:
         return registry.list()
 
-    @app.post("/predict", response_model=PredictResponse)
-    def predict(req: PredictRequest) -> PredictResponse:
+    def resolve(req: PredictRequest) -> tuple[Forecaster, list[Observation]]:
         model = registry.get(req.model)
         if model is None:
             raise HTTPException(status_code=404, detail=f"Unknown model '{req.model}'")
-
         history = sorted(
             (Observation(observed_at=h.observed_at, flow_vph=h.flow_vph) for h in req.history),
             key=lambda o: o.observed_at,
         )
-        points = model.predict(history, req.horizons_minutes)
+        return model, history
+
+    def respond(req: PredictRequest, model: Forecaster, points: list[ForecastPoint]) -> PredictResponse:
         return PredictResponse(
             sensor_id=req.sensor_id,
             model=model.name,
             model_version=model.version,
             points=[PredictPoint(**p.__dict__) for p in points],
         )
+
+    @app.post("/predict", response_model=PredictResponse)
+    def predict(req: PredictRequest) -> PredictResponse:
+        model, history = resolve(req)
+        return respond(req, model, model.predict(history, req.horizons_minutes))
+
+    @app.post("/predict/backfill", response_model=PredictResponse)
+    def backfill(req: BackfillRequest) -> PredictResponse:
+        """Forecasts as they would have been made at each cutoff, for scoring against actuals."""
+        model, history = resolve(req)
+        return respond(req, model, backfill_predictions(model, history, req.horizons_minutes, req.cutoffs))
 
     return app
 

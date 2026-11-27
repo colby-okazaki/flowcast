@@ -1,11 +1,10 @@
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { ComparisonPoint } from "../api";
 
-const timeFmt = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
-
-export function ForecastChart({ points }: { points: ComparisonPoint[] }) {
+export function ForecastChart({ points, timeZone }: { points: ComparisonPoint[]; timeZone: string }) {
+  const timeFmt = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", timeZone });
   if (points.length === 0) {
-    return <p className="empty">No readings in this window yet. Run the ingestion job, then generate a forecast.</p>;
+    return <p className="empty">No readings for this sensor yet. The ingestion scheduler loads them in the background.</p>;
   }
   const data = points.map((p) => ({ ...p, t: new Date(p.time).getTime() }));
   return (
@@ -27,11 +26,11 @@ export function ForecastChart({ points }: { points: ComparisonPoint[] }) {
           formatter={(v, name) => [`${Math.round(Number(v)).toLocaleString()} veh/h`, name]}
         />
         <Legend />
-        <Line name="Actual" dataKey="actual" stroke="#0f766e" dot={false} strokeWidth={2} connectNulls />
+        <Line name="Actual" dataKey="actual" stroke="var(--actual)" dot={false} strokeWidth={2} connectNulls />
         <Line
           name="Predicted"
           dataKey="predicted"
-          stroke="#1d4ed8"
+          stroke="var(--predicted)"
           dot={false}
           strokeWidth={2}
           strokeDasharray="5 4"

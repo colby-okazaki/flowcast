@@ -7,6 +7,8 @@ export interface Sensor {
   longitude: number;
   lanes: number | null;
   source: string;
+  /** Newest stored reading. Real feeds can lag by months, so windows are anchored here, not at "now". */
+  latestReadingAt: string | null;
 }
 
 export interface Reading {
@@ -65,7 +67,14 @@ export interface ForecastPoint {
   predictedFlow: number;
 }
 
+export interface ForecastResult {
+  modelVersion: string;
+  points: ForecastPoint[];
+}
+
 export interface MlClient {
   health(): Promise<void>;
-  forecast(req: ForecastRequest): Promise<{ modelVersion: string; points: ForecastPoint[] }>;
+  forecast(req: ForecastRequest): Promise<ForecastResult>;
+  /** Forecasts as they would have been made at each past cutoff (no look-ahead). */
+  backfill(req: ForecastRequest & { cutoffs: string[] }): Promise<ForecastResult>;
 }

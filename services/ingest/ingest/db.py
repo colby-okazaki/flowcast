@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Sequence
 
 import psycopg
@@ -42,6 +43,21 @@ def insert_readings(conn: psycopg.Connection, readings: Sequence[ReadingRecord])
             """
         )
         return cur.rowcount
+
+
+def latest_reading_time(conn: psycopg.Connection, source: str) -> datetime | None:
+    """Newest reading stored for any sensor from `source`, used as the start of incremental runs."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT max(r.observed_at)
+              FROM readings r JOIN sensors s ON s.id = r.sensor_id
+             WHERE s.source = %s
+            """,
+            (source,),
+        )
+        (latest,) = cur.fetchone()
+    return latest
 
 
 def start_run(conn: psycopg.Connection, source: str) -> int:

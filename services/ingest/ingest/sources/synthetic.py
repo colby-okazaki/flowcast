@@ -23,6 +23,7 @@ _SENSORS = [
 
 class SyntheticSource:
     name = "synthetic"
+    default_lookback_days = 28
 
     def __init__(self, seed: int = 42, interval_minutes: int = 5, bad_row_rate: float = 0.005) -> None:
         self.interval = timedelta(minutes=interval_minutes)

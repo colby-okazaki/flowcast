@@ -8,6 +8,7 @@ from .records import ReadingRecord
 
 MAX_SPEED_MPH = 120
 MAX_FLOW_PER_LANE_VPH = 3000  # well above physical lane capacity (~2,200 vph)
+ASSUMED_LANES_WHEN_UNKNOWN = 6  # some sources (e.g. WebTRIS) do not publish lane counts
 
 
 @dataclass
@@ -31,7 +32,7 @@ def reject_reason(r: ReadingRecord, known_sensors: set[str], lanes: dict[str, in
         return "missing_flow"
     if r.flow_vph < 0:
         return "negative_flow"
-    lane_count = lanes.get(r.sensor_id) or 1
+    lane_count = lanes.get(r.sensor_id) or ASSUMED_LANES_WHEN_UNKNOWN
     if r.flow_vph > MAX_FLOW_PER_LANE_VPH * lane_count:
         return "flow_above_capacity"
     if r.speed_mph is not None and not (0 <= r.speed_mph <= MAX_SPEED_MPH):
